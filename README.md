@@ -9,12 +9,15 @@ Safelib is an importer that supports fallback mechanism.
 import safelib
 from safelib import Import
 
-with Import('typing', 'typing_extensions') as importer:
+with Import('typing', 'typing_extensions', raises=False) as importer:
     # use traditional import
     from safelib import Protocol
     
     # use importer to access the final
     final = importer.final
+
+    if not importer.valid(final):
+        raise ImportError('Can not import final.')
 
     # use get_entity function to import override
     override = importer.get_entity('override')
@@ -44,7 +47,7 @@ from safelib import get, _reset
 ```python
 from safelib import Import
 
-async with Import('typing', 'my_types') as importer:
+async with Import('typing', 'my_types', search_builtins=True) as importer:
     SafeEntity = importer.SafeEntity
     importer.reset_state()
 ```
