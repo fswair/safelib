@@ -7,7 +7,7 @@ long_description = readme_file.read_text()
 
 setup(
     name="safelib",
-    version="0.4.0",
+    version="0.5.0",
     description="A library for safe imports and scoped imports management.",
     author="Mert Sirakaya",
     packages=["safelib"],
