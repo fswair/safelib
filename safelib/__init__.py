@@ -14,24 +14,13 @@ with Import('typing', 'typing_extensions') as importer:
 For inquiries, please contact the author at contact@tomris.dev
 """
 
-"""
-Utility module for safe imports in Python.
-"""
-
-__version__ = "0.4.0"
-
-get_version = lambda: __version__
-
 import importlib
 from types import ModuleType
 from typing import Any, Optional, Protocol, TypeAlias, Union
 
 Module: TypeAlias = str
 Entity: TypeAlias = Union[Any, type, object]
-SafeEntity: TypeAlias = Union[
-    ModuleType, Entity, "_Sentinel", "_Future", type["NotFound"]
-]
-
+SafeEntity: TypeAlias = Union[ModuleType, Entity, "_Sentinel", "_Future", type['NotFound']]
 
 class _Sentinel:
     """
@@ -73,6 +62,9 @@ class _State:
     fallback: _Sentinel = _Sentinel()
 
     _raise_exc: bool = False
+    _search_builtins: bool = False
+
+    _imported_names: dict[str, tuple[str, SafeEntity]] = {}
 
     def reset(self) -> None:
         """
@@ -86,13 +78,35 @@ class _State:
         Disable raising exceptions for the current state by catching them.
         """
         self._raise_exc = False
+    
+    def raise_exc(self) -> None:
+        """
+        Enable raising exceptions for the current state.
+        """
+        self._raise_exc = True
 
     @property
     def raises(self) -> bool:
         """
-        Enable raising exceptions for the current state.
+        Get whether exceptions will catch or fall through.
         """
         self._raise_exc
+
+    @property
+    def names(self) -> dict[str, tuple[str, SafeEntity]]:
+        """
+        Get the dictionary of imported names.
+
+        Returns:
+            dict: The dictionary of imported names.
+        """
+        return self._imported_names
+
+    def add_name(self, name: str, origin: str, value: SafeEntity) -> None:
+        """
+        Add a name to the imported names dictionary.
+        """
+        self._imported_names[name] = (origin, value)
 
 
 class _Future(Protocol):
@@ -102,14 +116,11 @@ class _Future(Protocol):
 
     pass
 
-
-class NotFound(_Future):
+class NotFound(Protocol):
     """
     A sentinel class to represent a value that has not been found in the import context.
     """
-
     pass
-
 
 state = _State()
 
@@ -119,12 +130,12 @@ class Import:
     Context manager for scoped safe imports.
     """
 
-    def __init__(self, main: str, fallback: str, raises: bool = True):
+    def __init__(self, main: str, fallback: str, raises: bool = True, search_builtins: bool = False):
         self.main = main
         self.fallback = fallback
+        self._search_builtins = search_builtins
         self._old_state = None
-        if not raises:
-            state.catch()
+        if not raises: state.catch()
 
     @staticmethod
     def valid(entity: SafeEntity) -> bool:
@@ -139,10 +150,12 @@ class Import:
         """
         return entity is not NotFound
 
-    def enter(self) -> "Import":
+    def enter(self) -> 'Import':
         self._old_state = _State()
         self._old_state.main = state.main.copy()
         self._old_state.fallback = state.fallback.copy()
+
+        state._search_builtins = self._search_builtins
 
         state.main.value = self.main
         state.main.empty = False
@@ -157,6 +170,8 @@ class Import:
     def exit(self, exc_type, exc_val, exc_tb):
         state.main = self._old_state.main.copy()
         state.fallback = self._old_state.fallback.copy()
+        state._raise_exc = self._old_state._raise_exc
+        state._search_builtins = self._old_state._search_builtins
 
     def reset_state(self) -> None:
         """
@@ -176,13 +191,13 @@ class Import:
         """
         return __getattr__(name, state)
 
-    def __enter__(self) -> "Import":
+    def __enter__(self) -> 'Import':
         return self.enter()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.exit(exc_type, exc_val, exc_tb)
 
-    async def __aenter__(self) -> "Import":
+    async def __aenter__(self) -> 'Import':
         return self.enter()
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -200,6 +215,20 @@ class Import:
         """
         return __getattr__(name, state)
 
+def import_name(name: str, origin: str = None, default: Any = None) -> SafeEntity:
+    if state._search_builtins:
+        val = getattr(importlib.import_module('builtins'), name, NotFound)
+        if val is not NotFound:
+            state.add_name(name, 'builtins', val)
+            return val
+    if origin is None:
+        value = importlib.import_module(name)
+    elif default is not None:
+        value = getattr(importlib.import_module(origin), name, default)
+    else:
+        value = getattr(importlib.import_module(origin), name)
+    state.add_name(name, origin, value)
+    return value
 
 def __getattr__(name: str, state: _State | None = None) -> SafeEntity:
     """
@@ -207,6 +236,7 @@ def __getattr__(name: str, state: _State | None = None) -> SafeEntity:
 
     Args:
         name (str): The name of the attribute to access.
+        state (_State): State manager instance.
 
     Returns:
         typing.Any: The value of the attribute.
@@ -243,13 +273,13 @@ def __getattr__(name: str, state: _State | None = None) -> SafeEntity:
         if state.main.value:
             try:
                 if name == state.main.value:
-                    return importlib.import_module(name)
-                return getattr(importlib.import_module(state.main.value), name)
+                    return import_name(name)
+                return import_name(name, state.main.value)
             except (ImportError, AttributeError, ModuleNotFoundError):
                 if not state.fallback.empty:
                     if name == state.fallback.value:
                         try:
-                            return importlib.import_module(name)
+                            return import_name(name)
                         except ImportError:
                             if state.raises:
                                 raise ImportError(
@@ -258,19 +288,13 @@ def __getattr__(name: str, state: _State | None = None) -> SafeEntity:
                             else:
                                 return NotFound
                     if state.raises:
-                        return getattr(
-                            importlib.import_module(state.fallback.value), name
-                        )
+                        return import_name(name, state.fallback.value)
                     else:
-                        return getattr(
-                            importlib.import_module(state.fallback.value),
-                            name,
-                            NotFound,
-                        )
+                        return import_name(name, state.fallback.value, default=NotFound)
                 if state.raises:
                     raise ImportError(
                         f"Module '{state.main.value}' has no attribute '{name}'"
                     )
                 else:
                     return NotFound
-        return _Future
+        return NotFound
