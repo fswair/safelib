@@ -2,6 +2,8 @@
 
 Safelib is an importer that supports fallback mechanism.
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/fswair/safe-typing)
+
 ### 0.6.0 Changelog
 
 * Fixed several issues
