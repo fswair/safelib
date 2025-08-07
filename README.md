@@ -2,7 +2,7 @@
 
 Safelib is an importer that supports fallback mechanism.
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/fswair/safelib)
+[![PyPI Downloads](https://static.pepy.tech/badge/safelib)](https://pepy.tech/projects/safelib) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/fswair/safelib)
 
 ### 0.6.0 Changelog
 
